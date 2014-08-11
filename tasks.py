@@ -4,7 +4,9 @@ from celery.utils.log import get_task_logger
 
 from bgg import get_user_collection
 
-app = Celery('tasks', broker='redis://localhost:6379/0', backend="redis://localhost:6379/0")
+app = Celery('tasks',
+             broker='redis://localhost:6379/0',
+             backend="redis://localhost:6379/0")
 
 app.conf.update(
     CELERY_TASK_SERIALIZER='json',
