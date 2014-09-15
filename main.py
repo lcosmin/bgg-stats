@@ -7,6 +7,7 @@ import logging
 import codecs
 import cStringIO
 import csv
+import datetime
 
 from bgg import get_user_collection
 
@@ -204,33 +205,192 @@ def stat_most_popular_users_hot10(col, f):
         log.info("game '{}', count: {}".format(res["_id"], res["count"]))
 
 
-def statistics(col, path):
+def stats_play_count_by_user(col, f):
+
+    log.info("counting number of recorded plays per user...")
+
+    r = col.aggregate([{"$group": {"_id": "$user", "count": {"$sum": "$quantity"}}}])
+
+    u = UnicodeWriter(f)
+    u.writerow(["user", "number of plays"])
+
+    for res in r["result"]:
+        u.writerow([res["_id"], str(res["count"])])
+        log.info("user '{}', number of plays: {}".format(res["_id"], res["count"]))
+
+
+def stats_recent_play_count_by_user(col, f):
+
+    log.info("counting number of recent plays per user...")
+
+    now = datetime.datetime.now()
+
+    start_date = now - datetime.timedelta(days=30)
+
+    r = col.aggregate([
+        {"$match": {"date": {"$gte": start_date}}},
+        {"$group": {"_id": "$user", "count": {"$sum": "$quantity"}}}
+    ])
+
+    u = UnicodeWriter(f)
+    u.writerow(["user", "recent number of plays"])
+
+    for res in r["result"]:
+        u.writerow([res["_id"], str(res["count"])])
+        log.info("user '{}', number of plays: {}".format(res["_id"], res["count"]))
+
+
+def stats_play_count_by_game(col, f):
+
+    log.info("counting number of plays per game...")
+
+    r = col.aggregate([{"$group": {"_id": "$game_name", "count": {"$sum": "$quantity"} }}])
+
+    u = UnicodeWriter(f)
+    u.writerow(["game", "number of plays"])
+
+    for res in r["result"]:
+        u.writerow([res["_id"], str(res["count"])])
+        log.info("game '{}', number of plays: {}".format(res["_id"], res["count"]))
+
+
+def stats_recent_play_count_by_game(col, f):
+
+    log.info("counting number of recent plays per game...")
+
+    now = datetime.datetime.now()
+
+    start_date = now - datetime.timedelta(days=30)
+
+    r = col.aggregate([
+        {"$match": {"date": {"$gte": start_date}}},
+        {"$group": {"_id": "$game_name", "count": {"$sum": "$quantity"} }}
+    ])
+
+    u = UnicodeWriter(f)
+    u.writerow(["game", "recent number of plays"])
+
+    for res in r["result"]:
+        u.writerow([res["_id"], str(res["count"])])
+        log.info("game '{}', number of plays: {}".format(res["_id"], res["count"]))
+
+
+def stats_play_count_by_month(col, f):
+
+    log.info("counting number of plays per month...")
+
+    r = col.aggregate([{"$match": {"date": {"$ne": None}}},
+                       {"$project": {"month": {"$month": "$date"}, "quantity": "$quantity"}},
+                       {"$group": {"_id": "$month", "count": {"$sum": "$quantity"}}}])
+
+    u = UnicodeWriter(f)
+    u.writerow(["month_id", "month", "number of plays"])
+
+    for res in r["result"]:
+        d = datetime.datetime.strptime(str(res["_id"]), "%m")
+        u.writerow([str(res["_id"]), d.strftime("%b"), str(res["count"])])
+        log.info("month {}, number of plays: {}".format(res["_id"], res["count"]))
+
+
+def stats_play_count_by_day_of_week(col, f):
+
+    log.info("counting number of plays per day of week...")
+
+    r = col.aggregate([{"$match": {"date": {"$ne": None}}},
+                       {"$project": {"dow": {"$dayOfWeek": "$date"}, "quantity": "$quantity"}},
+                       {"$group": {"_id": "$dow", "count": {"$sum": "$quantity"}}}])
+
+    u = UnicodeWriter(f)
+    u.writerow(["dow_id", "day of week", "number of plays"])
+
+    m = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
+
+    for res in r["result"]:
+        u.writerow([str(res["_id"]), m[res["_id"]], str(res["count"])])
+        log.info("day of week {}, number of plays: {}".format(res["_id"], res["count"]))
+
+
+def stats_plays_per_user_per_day_of_week(col, f):
+
+    # TODO: merge with user total plays
+    # TODO: merge with per day of week
+
+    log.info("counting number of plays per user per day of week...")
+
+    r = col.aggregate([
+        {"$match": {"date": {"$ne": None}}},
+        {"$project": {"quantity": "$quantity",
+                      "dow": {"$dayOfWeek": "$date"},
+                      "user": "$user"}},
+        {"$group": {"_id": {"user": "$user", "dow": "$dow"},
+                    "count": {"$sum": "$quantity"}}},
+        {"$group": {"_id": "$_id.user",
+                    "days": {"$push": {"day": "$_id.dow", "count": "$count"}} }}
+
+    ])
+
+    u = UnicodeWriter(f)
+    u.writerow(["user", "mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+
+    for res in r["result"]:
+        row = [res["_id"], "0", "0", "0", "0", "0", "0", "0"]
+
+        for d in res["days"]:
+            row[d["day"]] = str(d["count"])
+
+        log.info("user with plays: {}".format(row))
+        u.writerow(row)
+
+
+
+def statistics(games_collection, plays_collection, path):
 
     import os
     from functools import partial
 
     p = partial(os.path.join, path)
 
-    with open(p("games_owned_by.tsv"), "w") as f:
-        stat_games_owned_by(col, f)
+    # with open(p("games_owned_by.tsv"), "w") as f:
+    #     stat_games_owned_by(games_collection, f)
+    #
+    # with open(p("users_with_most_games.tsv"), "w") as f:
+    #     stat_users_with_most_games(games_collection, f)
+    #
+    # with open(p("wished_for_games.tsv"), "w") as f:
+    #     stat_wished_games(games_collection, f)
+    #
+    # with open(p("popular_owned_categories.tsv"), "w") as f:
+    #     stat_categories_by_popularity(games_collection, f)
+    #
+    # with open(p("popular_owned_families.tsv"), "w") as f:
+    #     stat_families_by_popularity(games_collection, f)
+    #
+    # with open(p("top10.tsv"), "w") as f:
+    #     stat_most_popular_users_top10(games_collection, f)
+    #
+    # with open(p("hot10.tsv"), "w") as f:
+    #     stat_most_popular_users_hot10(games_collection, f)
 
-    with open(p("users_with_most_games.tsv"), "w") as f:
-        stat_users_with_most_games(col, f)
+    with open(p("user_plays.tsv"), "w") as f:
+        stats_play_count_by_user(plays_collection, f)
 
-    with open(p("wished_for_games.tsv"), "w") as f:
-        stat_wished_games(col, f)
+    with open(p("user_recent_plays.tsv"), "w") as f:
+        stats_recent_play_count_by_user(plays_collection, f)
 
-    with open(p("popular_owned_categories.tsv"), "w") as f:
-        stat_categories_by_popularity(col, f)
+    with open(p("game_plays.tsv"), "w") as f:
+        stats_play_count_by_game(plays_collection, f)
 
-    with open(p("popular_owned_families.tsv"), "w") as f:
-        stat_families_by_popularity(col, f)
+    with open(p("game_recent_plays.tsv"), "w") as f:
+        stats_recent_play_count_by_game(plays_collection, f)
 
-    with open(p("top10.tsv"), "w") as f:
-        stat_most_popular_users_top10(col, f)
+    with open(p("monthly_plays.tsv"), "w") as f:
+        stats_play_count_by_month(plays_collection, f)
 
-    with open(p("hot10.tsv"), "w") as f:
-        stat_most_popular_users_hot10(col, f)
+    with open(p("dow_plays.tsv"), "w") as f:
+        stats_play_count_by_day_of_week(plays_collection, f)
+
+    with open(p("user_plays_per_day_of_week.tsv"), "w") as f:
+        stats_plays_per_user_per_day_of_week(plays_collection, f)
 
 
 def get_users(fname):
@@ -322,7 +482,7 @@ def main():
             write_results(collection, data)
 
     if args.statistics:
-        statistics(collection, args.statistics)
+        statistics(None, collection, args.statistics)
 
 if __name__ == "__main__":
     main()
