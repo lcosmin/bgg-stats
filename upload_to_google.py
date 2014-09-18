@@ -79,8 +79,6 @@ def main():
 
     http = credentials.authorize(httplib2.Http())
 
-    log.info("dir: {}".format(dir(http)))
-
     r = build("fusiontables", "v1", http=http)
 
     if args.list:
@@ -103,6 +101,7 @@ def main():
             r.query().sql(sql="DELETE FROM {}".format(args.update)).execute()
         except Exception as e:
             log.error("error deleting rows: {}".format(e))
+            #sys.exit(1)
 
         try:
             mf = MediaFileUpload(filename=args.file,
@@ -118,6 +117,7 @@ def main():
             log.info("result: {}".format(res))
         except Exception as e:
             log.error("error inserting rows: {}".format(e))
+            sys.exit(1)
 
 
 if __name__ == "__main__":

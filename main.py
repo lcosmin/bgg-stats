@@ -468,13 +468,13 @@ def main():
 
     p = argparse.ArgumentParser()
 
-    p.add_argument("-f", "--fetch", help="fetch collections", action="store_true")
-    p.add_argument("-", "--users", help="file containing usernames")
-    p.add_argument("-P", "--parallel", help="run script in parallel using celery", default=False, action="store_true")
+    g = p.add_argument_group("Fetch options")
+    g.add_argument("-f", "--fetch", help="fetch collections", action="store_true")
+    g.add_argument("-u", "--users", help="file containing usernames")
+    g.add_argument("-P", "--parallel", help="run script in parallel using celery", default=False, action="store_true")
 
     g = p.add_argument_group("Statistics")
-    g.add_argument("-o", "--output", help="path where to store the statistics", required=True)
-
+    g.add_argument("-o", "--output", help="path where to store the statistics", )
 
     g = p.add_argument_group("MongoDB Options")
     g.add_argument("--mongodb", help="mongodb URI (e.g. mongodb://host[:port]", required=True)
@@ -488,24 +488,25 @@ def main():
     conn = pymongo.MongoClient(args.mongodb)
 
     db = conn[args.db]
-    games_collection = db[args.collection+"games"]
-    plays_collection = db[args.collection+"plays"]
+    games_collection = db[args.collection]
+    plays_collection = db[args.plays]
 
     if args.fetch:
         users = get_users(args.users)
         parallel = args.parallel
 
-#        collections, plays = fetch_user_data(users)
-#            write_results(games_collection, data)
+        data = fetch_user_data(users)
+        write_results(games_collection, plays_collection, data)
 
-    try:
-        os.mkdir(args.output)
-    except:
-        pass
+    if args.output:
+        try:
+            os.mkdir(args.output)
+        except:
+            pass
 
-    statistics(args.collection,
-               args.plays,
-               args.output)
+        statistics(games_collection,
+                   plays_collection,
+                   args.output)
 
 
 if __name__ == "__main__":
