@@ -7,6 +7,33 @@ logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("bgg")
 
 
+def get_user_plays(username, **kwargs):
+    try:
+        bgg = BoardGameGeek(**kwargs)
+
+        plays = bgg.plays(name=username)
+
+        p = []
+
+        for play in plays:
+            p.append({
+                "_id": "{} {}".format(username, play.id),
+                "user": username,
+                "date": play.date,
+                "quantity": play.quantity,
+                "duration": play.duration,
+                "incomplete": play.incomplete,
+                "game_name": play.game_name,
+                "game_id": play.game_id
+            })
+
+        return p
+
+    except Exception as e:
+        log.exception("{}".format(e))
+        return []
+
+
 def get_user_collection(username, **kwargs):
     try:
         bgg = BoardGameGeek(**kwargs)

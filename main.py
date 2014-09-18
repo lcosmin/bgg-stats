@@ -11,7 +11,8 @@ import datetime
 import os
 from functools import partial
 
-from bgg import get_user_collection
+from bgg import get_user_collection, get_user_plays
+import os
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -406,13 +407,13 @@ def fetch_user_data(users):
 
     if parallel:
 
-        from tasks import fetch_bgg_user_collection
+        from tasks import fetch_bgg_user_data
         tasks = []
         finished_tasks = set()
 
         for user in users:
             # create a celery task for fetching this user's collection
-            tasks.append(fetch_bgg_user_collection.delay(user))
+            tasks.append(fetch_bgg_user_data.delay(user))
 
         done = False
         # wait for all tasks to finish
@@ -436,20 +437,30 @@ def fetch_user_data(users):
         for user in users:
             log.info("fetching {}'s collection...".format(user))
             try:
-                yield get_user_collection(user, cache="sqlite:///tmp/cache.db?ttl=36000")
+                yield get_user_collection(user, timeout=10, retries=5, cache="sqlite://{}".format(os.path.expanduser("~/.bgg_cache"))), \
+                      get_user_plays(user, timeout=10, retries=5, cache="sqlite://{}".format(os.path.expanduser("~/.bgg_cache")))
             except Exception as e:
                 log.exception("error getting {}'s collection".format(user))
 
 
-def write_results(mongo_collection, data):
+def write_results(game_collection, plays_collection, data):
     if data:
-        for game in data:
+        cols, plays = data
+        for game in cols:
             try:
                 log.info("saving {}'s collection, game: {}".format(game["user"]["name"],
                                                                    game["game"]["name"]))
-                mongo_collection.save(game)
+                game_collection.save(game)
             except Exception as e:
                 log.exception("error writing {}'s collection to the database: {}".format(game["user"]["name"], e))
+
+        for play in plays:
+            try:
+                log.info("saving {}'s plays, game: {}".format(play["user"],
+                                                              play["game_name"]))
+                plays_collection.save(play)
+            except Exception as e:
+                log.exception("error writing {}'s collection to the database: {}".format(play["user"], e))
 
 
 def main():
@@ -477,8 +488,8 @@ def main():
     conn = pymongo.MongoClient(args.mongodb)
 
     db = conn[args.db]
-    games_collection = db[args.collection]
-    play_collection = db[args.plays]
+    games_collection = db[args.collection+"games"]
+    plays_collection = db[args.collection+"plays"]
 
     if args.fetch:
         users = get_users(args.users)
@@ -495,6 +506,7 @@ def main():
     statistics(args.collection,
                args.plays,
                args.output)
+
 
 if __name__ == "__main__":
     main()
