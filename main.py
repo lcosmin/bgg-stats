@@ -8,6 +8,8 @@ import codecs
 import cStringIO
 import csv
 import datetime
+import os
+from functools import partial
 
 from bgg import get_user_collection
 
@@ -336,60 +338,59 @@ def stats_plays_per_user_per_day_of_week(col, f):
         row = [res["_id"], "0", "0", "0", "0", "0", "0", "0"]
 
         for d in res["days"]:
-            row[d["day"]] = str(d["count"])
+            # mongo returns Sun as 1, Mon 2, ...
+            # we want them as Mon 1, Tue 2, ... , Sun 7
+            # and inserted in the right positions of the list
+            row[(d["day"]-2) % 7 + 1] = str(d["count"])
 
         log.info("user with plays: {}".format(row))
         u.writerow(row)
 
 
-
 def statistics(games_collection, plays_collection, path):
-
-    import os
-    from functools import partial
 
     p = partial(os.path.join, path)
 
-    # with open(p("games_owned_by.tsv"), "w") as f:
-    #     stat_games_owned_by(games_collection, f)
-    #
-    # with open(p("users_with_most_games.tsv"), "w") as f:
-    #     stat_users_with_most_games(games_collection, f)
-    #
-    # with open(p("wished_for_games.tsv"), "w") as f:
-    #     stat_wished_games(games_collection, f)
-    #
-    # with open(p("popular_owned_categories.tsv"), "w") as f:
-    #     stat_categories_by_popularity(games_collection, f)
-    #
-    # with open(p("popular_owned_families.tsv"), "w") as f:
-    #     stat_families_by_popularity(games_collection, f)
-    #
-    # with open(p("top10.tsv"), "w") as f:
-    #     stat_most_popular_users_top10(games_collection, f)
-    #
-    # with open(p("hot10.tsv"), "w") as f:
-    #     stat_most_popular_users_hot10(games_collection, f)
+    with open(p("games_owned_by.csv"), "w") as f:
+        stat_games_owned_by(games_collection, f)
 
-    with open(p("user_plays.tsv"), "w") as f:
+    with open(p("users_with_most_games.csv"), "w") as f:
+        stat_users_with_most_games(games_collection, f)
+
+    with open(p("wished_for_games.csv"), "w") as f:
+        stat_wished_games(games_collection, f)
+
+    with open(p("popular_owned_categories.csv"), "w") as f:
+        stat_categories_by_popularity(games_collection, f)
+
+    with open(p("popular_owned_families.csv"), "w") as f:
+        stat_families_by_popularity(games_collection, f)
+
+    with open(p("top10.csv"), "w") as f:
+        stat_most_popular_users_top10(games_collection, f)
+
+    with open(p("hot10.csv"), "w") as f:
+        stat_most_popular_users_hot10(games_collection, f)
+
+    with open(p("user_plays.csv"), "w") as f:
         stats_play_count_by_user(plays_collection, f)
 
-    with open(p("user_recent_plays.tsv"), "w") as f:
+    with open(p("user_recent_plays.csv"), "w") as f:
         stats_recent_play_count_by_user(plays_collection, f)
 
-    with open(p("game_plays.tsv"), "w") as f:
+    with open(p("game_plays.csv"), "w") as f:
         stats_play_count_by_game(plays_collection, f)
 
-    with open(p("game_recent_plays.tsv"), "w") as f:
+    with open(p("game_recent_plays.csv"), "w") as f:
         stats_recent_play_count_by_game(plays_collection, f)
 
-    with open(p("monthly_plays.tsv"), "w") as f:
+    with open(p("monthly_plays.csv"), "w") as f:
         stats_play_count_by_month(plays_collection, f)
 
-    with open(p("dow_plays.tsv"), "w") as f:
+    with open(p("dow_plays.csv"), "w") as f:
         stats_play_count_by_day_of_week(plays_collection, f)
 
-    with open(p("user_plays_per_day_of_week.tsv"), "w") as f:
+    with open(p("user_plays_per_day_of_week.csv"), "w") as f:
         stats_plays_per_user_per_day_of_week(plays_collection, f)
 
 
@@ -401,7 +402,7 @@ def get_users(fname):
     return [x for x in usernames]
 
 
-def fetch_user_collections(users):
+def fetch_user_data(users):
 
     if parallel:
 
@@ -445,7 +446,7 @@ def write_results(mongo_collection, data):
         for game in data:
             try:
                 log.info("saving {}'s collection, game: {}".format(game["user"]["name"],
-                                                                    game["game"]["name"]))
+                                                                   game["game"]["name"]))
                 mongo_collection.save(game)
             except Exception as e:
                 log.exception("error writing {}'s collection to the database: {}".format(game["user"]["name"], e))
@@ -456,15 +457,19 @@ def main():
 
     p = argparse.ArgumentParser()
 
-    p.add_argument("--mongodb", help="mongodb URI (e.g. mongodb://host[:port]", required=True)
-    p.add_argument("--db", help="mongodb Database", required=True)
-    p.add_argument("--collection", help="mongodb collection", required=True)
-
     p.add_argument("-f", "--fetch", help="fetch collections", action="store_true")
     p.add_argument("-", "--users", help="file containing usernames")
     p.add_argument("-P", "--parallel", help="run script in parallel using celery", default=False, action="store_true")
 
-    p.add_argument("-s", "--statistics", help="path where to store the statistics")
+    g = p.add_argument_group("Statistics")
+    g.add_argument("-o", "--output", help="path where to store the statistics", required=True)
+
+
+    g = p.add_argument_group("MongoDB Options")
+    g.add_argument("--mongodb", help="mongodb URI (e.g. mongodb://host[:port]", required=True)
+    g.add_argument("--db", help="mongodb Database", required=True)
+    g.add_argument("--collection", help="mongodb games collection", required=True)
+    g.add_argument("--plays", help="mongodb plays collection", required=True)
 
     args = p.parse_args()
 
@@ -472,17 +477,24 @@ def main():
     conn = pymongo.MongoClient(args.mongodb)
 
     db = conn[args.db]
-    collection = db[args.collection]
+    games_collection = db[args.collection]
+    play_collection = db[args.plays]
 
     if args.fetch:
         users = get_users(args.users)
         parallel = args.parallel
 
-        for data in fetch_user_collections(users):
-            write_results(collection, data)
+#        collections, plays = fetch_user_data(users)
+#            write_results(games_collection, data)
 
-    if args.statistics:
-        statistics(None, collection, args.statistics)
+    try:
+        os.mkdir(args.output)
+    except:
+        pass
+
+    statistics(args.collection,
+               args.plays,
+               args.output)
 
 if __name__ == "__main__":
     main()
